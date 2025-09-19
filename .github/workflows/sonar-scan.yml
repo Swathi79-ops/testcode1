@@ -31,5 +31,5 @@ jobs:
             -Dsonar.projectKey=YOUR_PROJECT_KEY
             -Dsonar.organization=YOUR_ORG
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secre
+          SONAR_TOKEN: "${{ secrets.SONAR_TOKEN }}"
+          SONAR_HOST_URL: "${{ secrets.SONAR_HOST_URL }}"
