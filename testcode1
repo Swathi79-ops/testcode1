@@ -1,0 +1,100 @@
+# sql_injection.py
+import sqlite3
+
+def init_db():
+    conn = sqlite3.connect(":memory:")
+    c = conn.cursor()
+    c.execute("CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, password TEXT)")
+    c.execute("INSERT INTO users(name,password) VALUES ('alice','alicepwd')")
+    c.execute("INSERT INTO users(name,password) VALUES ('bob','bobpwd')")
+    conn.commit()
+    return conn
+
+def get_user_by_name(conn, name):
+    # VULNERABLE: string formatting / concatenation into SQL
+    # uses old-style % formatting which is unsafe with user input
+    query = "SELECT id, name FROM users WHERE name = '%s'" % name
+    print("[get_user_by_name] Running query:", query)
+    cur = conn.cursor()
+    cur.execute(query)   # -> SQL injection risk
+    return cur.fetchall()
+
+def get_user_by_name_fstring(conn, name):
+    # VULNERABLE: f-string used directly with user input
+    query = f"SELECT id, name FROM users WHERE name = '{name}'"
+    print("[get_user_by_name_fstring] Running query:", query)
+    cur = conn.cursor()
+    cur.execute(query)   # -> SQL injection risk
+    return cur.fetchall()
+
+def delete_user(conn, username):
+    # VULNERABLE: uses executescript which executes multiple SQL statements.
+    # If username contains ;DROP TABLE ... an attacker can drop tables.
+    script = "DELETE FROM users WHERE name = '%s';" % username
+    print("[delete_user] Running script:", script)
+    conn.executescript(script)   # -> multi-statement injection risk
+
+def create_user_table_dynamic(conn, table_name):
+    # VULNERABLE: dynamic table name from user input (SQL identifier injection)
+    # Example attack: table_name = "users_copy; DROP TABLE users; --"
+    sql = "CREATE TABLE %s (id INTEGER PRIMARY KEY, name TEXT, password TEXT)" % table_name
+    print("[create_user_table_dynamic] Running:", sql)
+    cur = conn.cursor()
+    cur.execute(sql)  # -> identifier injection / arbitrary SQL execution
+    conn.commit()
+
+def insecure_admin_login(conn, username, password):
+    # VULNERABLE: prints sensitive values and uses insecure string interpolation
+    # Also compares plaintext passwords (no hashing/salting).
+    query = "SELECT password FROM users WHERE name = '%s'" % username
+    print("[insecure_admin_login] Running query:", query)
+    cur = conn.cursor()
+    cur.execute(query)
+    row = cur.fetchone()
+    if not row:
+        print("User not found")
+        return False
+    stored_password = row[0]
+    print("Stored password (leaked):", stored_password)  # leaking secret in logs
+    # insecure comparison
+    if password == stored_password:
+        return True
+    return False
+
+if __name__ == "__main__":
+    conn = init_db()
+
+    # Normal lookup
+    print("Normal lookup:", get_user_by_name(conn, "alice"))
+
+    # Classic SQL injection test: returns all rows
+    print("Injection lookup (OR trick):", get_user_by_name(conn, "alice' OR '1'='1"))
+
+    # f-string variant
+    print("F-string injection:", get_user_by_name_fstring(conn, "bob' OR '1'='1"))
+
+    # Demonstrate multi-statement injection via executescript
+    # Dangerous test input - in a real environment this would drop the table.
+    malicious_username = "alice'; DROP TABLE users; --"
+    try:
+        delete_user(conn, malicious_username)
+        print("After malicious delete_user, attempting a query:")
+        # This next call will fail if table was dropped
+        print(get_user_by_name(conn, "alice"))
+    except Exception as e:
+        print("Error after malicious delete_user (expected if table dropped):", e)
+
+    # Demonstrate dynamic table name injection (identifier injection)
+    try:
+        # This will attempt to create a table with an injected DROP if allowed
+        create_user_table_dynamic(conn, "users_copy; DROP TABLE users; --")
+    except Exception as e:
+        print("Error creating dynamic table (identifier injection):", e)
+
+    # Insecure admin login that leaks passwords
+    print("Insecure login success (correct):", insecure_admin_login(conn, "alice", "alicepwd"))
+    print("Insecure login bypass attempt:", insecure_admin_login(conn, "alice", "alice' OR '1'='1"))
+
+    # Notes:
+    # - All of the above are intentionally insecure and meant for testing only.
+    # - SonarQube should flag uses of string interpolation in SQL, executescript, and dynamic identifiers.
