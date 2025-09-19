@@ -1,5 +1,4 @@
 on:
-  # Trigger analysis when pushing to main branches and when creating a pull request.
   push:
     branches:
       - main
@@ -16,7 +15,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Disabling shallow clones is recommended for improving reporting
           fetch-depth: 0
 
       - name: SonarCloud Scan
